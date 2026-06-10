@@ -1,0 +1,24 @@
+Metadata-Version: 2.4
+Name: dtfl
+Version: 0.1.0
+Summary: Privacy-preserving response-time-tiered federated learning: simulator, adversaries, and defenses (PoPETs artifact).
+Author: TBD
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.26
+Requires-Dist: scipy>=1.11
+Requires-Dist: pandas>=2.1
+Requires-Dist: scikit-learn>=1.3
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: matplotlib>=3.8
+Provides-Extra: learning
+Requires-Dist: torch>=2.1; extra == "learning"
+Requires-Dist: torchvision>=0.16; extra == "learning"
+Provides-Extra: crypto
+Requires-Dist: flwr>=1.7; extra == "crypto"
+Requires-Dist: cryptography>=42.0; extra == "crypto"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: ruff>=0.3; extra == "dev"
