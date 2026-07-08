@@ -32,6 +32,39 @@ TIERS: int = 5
 DATASET: str = "synthetic"
 SEED: int = 42
 
+# --- population source: "flhetbench" (real-device-grounded, DEFAULT) or "synthetic" ---
+# When "flhetbench", experiments build the population from the FLHetBench
+# real-world device database (compute latency from the training-latency table,
+# network/availability from the paired MobiPerf/FLASH records). When "synthetic",
+# the parametric latent model (evenly spaced class means + chosen eta) is used --
+# needed for the SNR / mutual-information mechanism story, which has no direct
+# FLHetBench analogue. Flip this single value to switch the whole suite.
+POPULATION: str = "flhetbench"
+
+# FLHetBench population defaults (used only when POPULATION == "flhetbench").
+FLHET_CASE: str = "case2"        # paired device/network sample set (case2 or case4)
+FLHET_SPREAD: float = 1.0        # DPGMM-style heterogeneity spread (sweep axis)
+FLHET_ETA: float = 0.20          # modeled round-to-round transient jitter (log std)
+
+
+def population_config():
+    """Return the FLHetBenchConfig for the default population, or None for synthetic.
+
+    Experiments pass the result to ``EngineConfig(flhetbench=...)``. Kept here so
+    the population source is centrally controlled, exactly like DEVICES / TIERS.
+    Import is local to avoid pulling the latent layer into config at module load.
+    """
+    if POPULATION == "flhetbench":
+        from dtfl.latent.flhetbench import FLHetBenchConfig
+
+        return FLHetBenchConfig(
+            num_classes=TIERS,
+            case=FLHET_CASE,
+            hetero_spread=FLHET_SPREAD,
+            proxy_noise_eta=FLHET_ETA,
+        )
+    return None
+
 # --- multi-seed list, derived from the base seed ---
 NUM_SEEDS: int = 5
 SEEDS: tuple[int, ...] = tuple(SEED + i for i in range(NUM_SEEDS))

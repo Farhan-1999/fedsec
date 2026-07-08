@@ -1,4 +1,4 @@
-﻿import importlib, traceback
+import importlib, traceback
 checks = {
     "dtfl.attack": ["Adversary","L0UnsupervisedAttacker","L1FewShotAttacker",
                     "L2PriorAttacker","ModelKnowledge","L3OmniscientAttacker",

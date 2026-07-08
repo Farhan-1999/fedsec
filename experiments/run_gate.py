@@ -87,7 +87,7 @@ def main():
     import config as C
     NUM_DEVICES = C.DEVICES
     NUM_ROUNDS = C.PRIVACY_ROUNDS
-    K = 3
+    K = C.TIERS  # match the rest of the privacy experiments (K=5)
     lcfg = LatentConfig()  # default eta=0.20
 
     print("="*64)
@@ -99,10 +99,14 @@ def main():
     # --- Undefended run: few tiers, tiny m_min, fine timing buckets (max signal) ---
     eng_undef = Engine(
         EngineConfig(seed=101, num_devices=NUM_DEVICES, num_rounds=NUM_ROUNDS,
-                     round_config=RoundConfig(m_min=8)),
+                     round_config=RoundConfig(m_min=8),
+                     flhetbench=C.population_config()),
         lcfg,
     )
-    cuts = eng_undef.calibrate_fixed_deadlines((0.33, 0.66))
+    # K interior quantiles at k/K for k=1..K-1 (calibrate appends a covering tier),
+    # so the undefended run uses the same tier count as the rest of the paper.
+    quantiles_undef = tuple(k / K for k in range(1, K))
+    cuts = eng_undef.calibrate_fixed_deadlines(quantiles_undef)
     round_budget = cuts[-1]
     fine_bucketer = uniform_width_bucketer(num_buckets=20, round_budget=round_budget)
     out_undef = eng_undef.run(lambda r,v: cuts, bucketer=fine_bucketer)
@@ -113,7 +117,8 @@ def main():
     quantiles_def = tuple(np.linspace(1/K_DEF, (K_DEF-1)/K_DEF, K_DEF-1))
     eng_def = Engine(
         EngineConfig(seed=101, num_devices=NUM_DEVICES, num_rounds=NUM_ROUNDS,
-                     round_config=RoundConfig(m_min=120)),
+                     round_config=RoundConfig(m_min=120),
+                     flhetbench=C.population_config()),
         lcfg,
     )
     cuts_d = eng_def.calibrate_fixed_deadlines(quantiles_def)

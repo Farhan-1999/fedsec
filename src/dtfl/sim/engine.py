@@ -41,12 +41,20 @@ DeadlinePolicy = Callable[[int, TranscriptView], tuple[float, ...]]
 
 @dataclass(frozen=True)
 class EngineConfig:
-    """Top-level run configuration."""
+    """Top-level run configuration.
+
+    ``flhetbench`` selects the population source. When None (default), the
+    parametric synthetic latent model is used (unchanged behaviour). When set to
+    an ``FLHetBenchConfig``, devices are drawn from the FLHetBench real-world
+    device database instead. Either way the engine receives the same
+    ``LatentDeviceState`` list, so nothing downstream changes.
+    """
 
     seed: int = 12345
     num_devices: int = 1000
     num_rounds: int = 100
     round_config: RoundConfig = field(default_factory=RoundConfig)
+    flhetbench: "FLHetBenchConfig | None" = None
 
 
 @dataclass
@@ -78,9 +86,20 @@ class Engine:
         self._hub = RngHub(seed=config.seed)
 
         # Build the population once (shared across baselines via the seed).
-        pop = build_population(
-            config.num_devices, latent_config, self._hub.stream("latent.population")
-        )
+        # Either the parametric synthetic model or the FLHetBench-grounded one;
+        # both return the same LatentDeviceState list.
+        if config.flhetbench is not None:
+            from dtfl.latent.flhetbench import build_flhetbench_population
+
+            pop = build_flhetbench_population(
+                config.num_devices,
+                config.flhetbench,
+                self._hub.stream("latent.population"),
+            )
+        else:
+            pop = build_population(
+                config.num_devices, latent_config, self._hub.stream("latent.population")
+            )
         self._mu = np.array([d.mu for d in pop], dtype=np.float64)
         self._classes = np.array([d.capability_class for d in pop], dtype=np.int64)
         self._availability = np.array([d.availability_rate for d in pop], dtype=np.float64)
@@ -183,3 +202,59 @@ class Engine:
             if cuts[i] <= cuts[i - 1]:
                 cuts[i] = cuts[i - 1] + 1e-6
         return tuple(cuts)
+
+    def adaptive_policy(
+        self,
+        quantiles: tuple[float, ...],
+        *,
+        eta0: float = 0.5,
+        broadcast_scale: float | None = None,
+    ):
+        """Build a fresh quantile-tracking (Robbins-Monro) deadline policy.
+
+        This is the DEPLOYABLE controller: it sets deadlines online from the
+        aggregate transcript counts alone and NEVER probes the latent
+        completion-time distribution (unlike ``calibrate_fixed_deadlines``). The
+        server adapts deadlines to what it observes each round.
+
+        ``quantiles`` are the same interior target fractions the fixed policy
+        takes (e.g. k/K for k=1..K-1); this method appends the covering 1.0 target
+        and derives K = len(quantiles) + 1 tiers, matching the fixed-policy tier
+        count exactly. The controller is stateful, so a NEW instance is returned on
+        every call -- pass its ``.policy()`` to ``run``.
+
+        ``broadcast_scale`` is a PUBLIC, coarse expected-latency magnitude the
+        server may announce (e.g. a nominal round-duration budget). It anchors the
+        equal-width init cutoffs to roughly the right order of magnitude so the
+        Robbins-Monro iteration converges in a few rounds rather than spending many
+        rounds climbing to scale. It is a single public scalar, NOT per-device
+        latent data -- the controller still observes nothing about individual
+        devices. If None, a coarse magnitude is derived from the population's
+        median base latency, rounded to one significant figure, which is a
+        defensible stand-in for a scale the operator would know a priori.
+        """
+        from dtfl.controller.quantile import QuantileTrackingController
+
+        targets = tuple(quantiles) + (1.0,)
+        K = len(targets)
+
+        if broadcast_scale is None:
+            # Coarse public magnitude: median exp(mu), rounded to 1 sig fig. This
+            # is an order-of-magnitude operator prior, not a distribution probe.
+            import math
+
+            med = float(np.median(np.exp(self._mu)))
+            if med > 0:
+                mag = 10 ** math.floor(math.log10(med))
+                broadcast_scale = round(med / mag) * mag
+            else:
+                broadcast_scale = 1.0
+
+        # Equal-width init cutoffs across (0, broadcast_scale], covering tier at ~2x.
+        step = broadcast_scale / K
+        init = tuple(float(step * (i + 1)) for i in range(K - 1)) + (
+            float(broadcast_scale * 2.0),
+        )
+        return QuantileTrackingController(
+            K, targets, init, eta0=eta0, hi=float(broadcast_scale * 5.0)
+        )

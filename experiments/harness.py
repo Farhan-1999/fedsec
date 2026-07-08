@@ -116,17 +116,18 @@ def evaluate_defense_point(
             num_devices=num_devices,
             num_rounds=num_rounds,
             round_config=RoundConfig(m_min=defense.m_min),
+            flhetbench=C.population_config(),
         ),
         latent_config,
     )
 
     # Deadlines for the configured number of tiers, via latent calibration.
     quantiles = deadline_quantiles_for(defense)
-    cuts = engine.calibrate_fixed_deadlines(quantiles)
-    round_budget = cuts[-1]
+    controller = engine.adaptive_policy(quantiles)
+    round_budget = controller._cutoffs[-1]  # init covering-tier scale, for bucketing
     bucketer = bucketer_for(defense, round_budget=round_budget)
 
-    out = engine.run(lambda r, v: cuts, bucketer=bucketer)
+    out = engine.run(controller.policy(), bucketer=bucketer)
 
     # --- attack ---
     recs = _device_tier_records(out)

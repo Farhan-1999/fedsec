@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, "src")
 sys.path.insert(0, str(Path(__file__).parent))
 
-from experiments.harness import evaluate_defense_point
+from harness import evaluate_defense_point
 
 from dtfl.defense import BucketMode, DefenseConfig
 from dtfl.latent import LatentConfig

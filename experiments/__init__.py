@@ -1,18 +1,12 @@
-"""dtfl.attack: adversaries. Imports transcript/, metrics/, types, rng ONLY."""
-from dtfl.attack.base import Adversary
-from dtfl.attack.l0_unsupervised import L0UnsupervisedAttacker
-from dtfl.attack.l1_fewshot import L1FewShotAttacker
-from dtfl.attack.l2_prior import L2PriorAttacker, ModelKnowledge
-from dtfl.attack.l3_omniscient import L3OmniscientAttacker
-from dtfl.attack.observation import (
-    DeviceObservation,
-    ObservationFeaturizer,
-    build_observations,
-)
+"""dtfl experiments package.
 
-__all__ = [
-    "Adversary",
-    "L0UnsupervisedAttacker", "L1FewShotAttacker",
-    "L2PriorAttacker", "ModelKnowledge", "L3OmniscientAttacker",
-    "DeviceObservation", "ObservationFeaturizer", "build_observations",
-]
+Run scripts and plot scripts for the privacy/utility evaluation. These live
+OUTSIDE the dtfl package because they legitimately read latent logs to (1)
+reconstruct the per-device observed tier sequences an attacker watching those
+devices would obtain, and (2) evaluate predictions against ground truth. The
+attacker code itself only ever receives observations + transcript + seed labels.
+
+Shared defaults (device count, tier count K, dataset, seed) live in
+experiments/config.py so every experiment is mutually consistent unless it is
+directly studying one of those parameters.
+"""

@@ -75,21 +75,25 @@ def run_once(label, controller_factory, train, val, input_dim, num_classes,
     lcfg = LatentConfig()
     eng = Engine(
         EngineConfig(seed=seed, num_devices=num_devices, num_rounds=rounds,
-                     round_config=RoundConfig(m_min=8)),
+                     round_config=RoundConfig(m_min=8),
+                     flhetbench=CFG.population_config()),
         lcfg,
     )
-    pilot = eng.calibrate_fixed_deadlines((0.33, 0.66))
-    controller = controller_factory(pilot)
-    model = make_model(arch, input_dim, num_classes, hidden, use_torch, device=device)
+    # K interior quantiles at k/K for k=1..K-1 (calibrate appends a covering tier).
+    pilot_quantiles = tuple(k / CFG.TIERS for k in range(1, CFG.TIERS))
+    img_shape = (3, 32, 32) if arch == "cnn" else None
+    model = make_model(arch, input_dim, num_classes, hidden, use_torch, image_shape=img_shape, device=device)
 
-    # federated_train runs with a fixed deadline vector. For the controller
-    # comparison we use each controller's chosen cutoffs (its initial/target
-    # deadline vector); the training loop itself is fixed-deadline per run.
-    cutoffs = controller.next_deadlines(0, _empty_view())
+    # Adaptive quantile-tracking controller: the server adapts tier deadlines
+    # online from the aggregate counts (deployable, transcript-blind). The
+    # training loop now updates deadlines each round via this controller.
+    controller = eng.adaptive_policy(pilot_quantiles)
+    cutoffs = tuple(controller._cutoffs)  # round-0 init + time-budget scale
     res = federated_train(
         model, train, val, eng, cutoffs,
         FedTrainConfig(local_epochs=1, local_lr=lr, server_lr=1.0),
         RoundConfig(m_min=8), base_seed=7,
+        controller=controller,
     )
     return label, res
 
@@ -125,15 +129,19 @@ def main():
     train, val, d_in, C, arch = build_data(args.data, hub)
     print(f"data={args.data}  train={len(train)} val={len(val)}  d_in={d_in} C={C} arch={arch}")
 
+    # Tier count and matching cumulative-fraction targets (k/K for k=1..K, last=1.0).
+    K = CFG.TIERS
+    qt_targets = tuple(k / K for k in range(1, K + 1))
+
     runs = []
     if args.compare:
         factories = {
-            "fixed_quantile": lambda pilot: FixedQuantile(3, pilot),
+            "fixed_quantile": lambda pilot: FixedQuantile(K, pilot),
             "quantile_track": lambda pilot: QuantileTrackingController(
-                3, (0.33, 0.66, 1.0), pilot),
+                K, qt_targets, pilot),
         }
     else:
-        factories = {"train": lambda pilot: FixedQuantile(3, pilot)}
+        factories = {"train": lambda pilot: FixedQuantile(K, pilot)}
 
     for label, factory in factories.items():
         print(f"\n=== running: {label} ===")

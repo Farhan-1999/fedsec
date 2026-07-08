@@ -59,10 +59,11 @@ def run_for_bucketmode(label, bucket_kwargs, lcfg, m_min=1, num_tiers=5,
                        seed=101, num_devices=C.DEVICES, num_rounds=C.PRIVACY_ROUNDS):
     defense = DefenseConfig(m_min=m_min, num_tiers=num_tiers, **bucket_kwargs)
     eng = Engine(EngineConfig(seed=seed, num_devices=num_devices, num_rounds=num_rounds,
-                              round_config=RoundConfig(m_min=m_min)), lcfg)
-    cuts = eng.calibrate_fixed_deadlines(deadline_quantiles_for(defense))
-    bucketer = bucketer_for(defense, round_budget=cuts[-1])
-    out = eng.run(lambda r, v: cuts, bucketer=bucketer)
+                              round_config=RoundConfig(m_min=m_min),
+                              flhetbench=C.population_config()), lcfg)
+    controller = eng.adaptive_policy(deadline_quantiles_for(defense))
+    bucketer = bucketer_for(defense, round_budget=controller._cutoffs[-1])
+    out = eng.run(controller.policy(), bucketer=bucketer)
     atoms = per_round_atoms(out)
     horizons = [1, 2, 5, 10, 20, 40, 80]
     curve = linkability_curve(atoms, horizons, m_min=m_min)

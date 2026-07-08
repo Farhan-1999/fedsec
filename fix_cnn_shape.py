@@ -1,4 +1,4 @@
-﻿import pathlib
+import pathlib
 p = pathlib.Path("experiments/run_training.py")
 t = p.read_text(encoding="utf-8")
 

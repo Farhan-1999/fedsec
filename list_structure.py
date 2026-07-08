@@ -1,4 +1,4 @@
-﻿import pathlib
+import pathlib
 root = pathlib.Path('.')
 skip = {'.git', '__pycache__', '.venv', 'node_modules', '.pytest_cache', 'data'}
 lines = []

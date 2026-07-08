@@ -1,4 +1,4 @@
-﻿"""dtfl.attack: adversaries. Imports transcript/, metrics/, types, rng ONLY."""
+"""dtfl.attack: adversaries. Imports transcript/, metrics/, types, rng ONLY."""
 from dtfl.attack.base import Adversary
 from dtfl.attack.l0_unsupervised import L0UnsupervisedAttacker
 from dtfl.attack.l1_fewshot import L1FewShotAttacker

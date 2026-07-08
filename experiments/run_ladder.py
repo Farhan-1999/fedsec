@@ -51,13 +51,14 @@ def run_one_defense(defense: DefenseConfig, lcfg: LatentConfig, *,
     """Run the simulation once, then evaluate all four rungs on its transcript."""
     engine = Engine(
         EngineConfig(seed=seed, num_devices=num_devices, num_rounds=num_rounds,
-                     round_config=RoundConfig(m_min=defense.m_min)),
+                     round_config=RoundConfig(m_min=defense.m_min),
+                     flhetbench=C.population_config()),
         lcfg,
     )
     quantiles = deadline_quantiles_for(defense)
-    cuts = engine.calibrate_fixed_deadlines(quantiles)
-    bucketer = bucketer_for(defense, round_budget=cuts[-1])
-    out = engine.run(lambda r, v: cuts, bucketer=bucketer)
+    controller = engine.adaptive_policy(quantiles)
+    bucketer = bucketer_for(defense, round_budget=controller._cutoffs[-1])
+    out = engine.run(controller.policy(), bucketer=bucketer)
 
     recs = _device_tier_records(out)
     observations = build_observations(recs)

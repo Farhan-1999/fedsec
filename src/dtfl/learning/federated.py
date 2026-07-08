@@ -87,6 +87,7 @@ def federated_train(
     *,
     base_seed: int = 7,
     tier_selector=None,
+    controller=None,
 ) -> FedTrainResult:
     """Run real federated training under the engine's timing/tier dynamics.
 
@@ -99,6 +100,15 @@ def federated_train(
     of tier indices to TRAIN this round. Default None trains all tiers (our
     framework / FedAvg). A TiFL-style baseline passes a selector that returns a
     single tier per round.
+
+    controller: optional stateful deadline controller (e.g. the adaptive
+    QuantileTrackingController). When provided, deadlines are updated ONLINE each
+    round from the aggregate per-tier counts -- the deployable server adapts the
+    tiering to what it observes, exactly as in the privacy experiments. When None,
+    ``deadlines_cutoffs`` is used fixed for every round (legacy behaviour). The
+    controller reads only counts (never a completion time or device), preserving
+    the transcript-blind invariant; ``deadlines_cutoffs`` still supplies the
+    round-0 deadlines and the per-round simulated-time budget.
     """
     hub = RngHub(seed=base_seed)
     # Pull population state off the engine (latent side; this is experimenter code).
@@ -115,6 +125,25 @@ def federated_train(
     from dtfl.types import RoundDeadlines
     deadlines = RoundDeadlines(round_index=0, cutoffs=tuple(deadlines_cutoffs))
 
+    # Minimal counts feed for the controller: it reads only per-tier counts.
+    # We accumulate this round's tier counts and expose them via a tiny adapter
+    # that satisfies the controller's `tier_counts(round_index)` + `len` calls,
+    # without constructing a full TranscriptStore.
+    class _CountsFeed:
+        def __init__(self):
+            self._by_round: dict[int, dict[int, int | None]] = {}
+
+        def record(self, round_index: int, counts: dict[int, int | None]):
+            self._by_round[round_index] = counts
+
+        def tier_counts(self, round_index: int) -> dict[int, int | None]:
+            return self._by_round.get(round_index, {})
+
+        def __len__(self) -> int:
+            return len(self._by_round)
+
+    counts_feed = _CountsFeed()
+
     val_acc, val_loss, vtime, partic = [], [], [], []
     wtime = []
     rtime = []          # cumulative straggler-aware round time
@@ -127,6 +156,14 @@ def federated_train(
     for r in range(num_rounds):
         _t0 = time.perf_counter()
         child = hub.child(f"round.{r}")
+
+        # Adaptive deadlines: the server updates the tier deadlines online from
+        # the counts it has observed so far (transcript-blind). Round 0 emits the
+        # controller's init cutoffs; later rounds reflect the Robbins-Monro updates.
+        if controller is not None:
+            cutoffs_r = controller.next_deadlines(r, counts_feed)
+            deadlines = RoundDeadlines(round_index=r, cutoffs=tuple(cutoffs_r))
+
         available_mask = avail_rng.random(N) < avail
         avail_ids = np.flatnonzero(available_mask)
 
@@ -134,6 +171,11 @@ def federated_train(
         tau = draw_completion_times(mu[avail_ids], lcfg, child.stream("latency"))
         tiers_local = assign_tiers(tau, deadlines)
         rosters_local = tier_rosters(tiers_local, num_tiers)
+        # Feed this round's per-tier counts to the controller for its next update.
+        if controller is not None:
+            counts_feed.record(
+                r, {k: int(rosters_local[k].size) for k in range(num_tiers)}
+            )
         # completion time of the slowest device in each tier (for round-time cost)
         tier_max_tau = []
         for _k in range(num_tiers):
@@ -189,7 +231,7 @@ def federated_train(
             tier_selector.update(selected, acc, r)
         total_part = sum(c.count for c in contributions)
         partic.append(total_part)
-        clock += float(deadlines_cutoffs[-1])
+        clock += float(deadlines.cutoffs[-1])  # current round's covering deadline
         vtime.append(clock)
         # straggler-aware round time: the round ends when the slowest device
         # whose tier actually trained has finished. Frameworks that skip slow

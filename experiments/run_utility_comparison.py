@@ -74,22 +74,26 @@ def run_config(name, num_tiers, m_min, *, train, val, d_in, C, arch, use_torch,
             if _STRAGGLER["on"] else LatentConfig())
     eng = Engine(
         EngineConfig(seed=seed, num_devices=devices, num_rounds=rounds,
-                     round_config=RoundConfig(m_min=m_min)),
+                     round_config=RoundConfig(m_min=m_min),
+                     flhetbench=CFG.population_config()),
         lcfg,
     )
-    # Deadlines: K equal-mass quantile cutoffs. For K=1 this is a single deadline
-    # that admits everyone -> no tiering -> vanilla FedAvg.
+    # Deadlines: adaptive quantile-tracking controller (the deployable server
+    # adapts deadlines online). K=1 is a single covering deadline -> no tiering.
     if num_tiers == 1:
         cutoffs = eng.calibrate_fixed_deadlines(())  # single covering cutoff
+        controller = None
     else:
         qs = tuple((k + 1) / num_tiers for k in range(num_tiers - 1))
-        cutoffs = eng.calibrate_fixed_deadlines(qs)
+        controller = eng.adaptive_policy(qs)
+        cutoffs = tuple(controller._cutoffs)  # round-0 init + time-budget scale
 
     model = make_model(arch, d_in, C, hidden, use_torch, device=device)
     res = federated_train(
         model, train, val, eng, cutoffs,
         FedTrainConfig(local_epochs=1, local_lr=lr, server_lr=1.0),
         RoundConfig(m_min=m_min), base_seed=7, tier_selector=tier_selector,
+        controller=controller,
     )
     return res
 

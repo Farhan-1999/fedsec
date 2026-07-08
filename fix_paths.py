@@ -1,4 +1,4 @@
-﻿import pathlib, re
+import pathlib, re
 root = pathlib.Path(".")
 bad = "."
 n = 0
