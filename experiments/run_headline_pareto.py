@@ -45,18 +45,20 @@ def m_min_configs() -> list[tuple[int, int]]:
     """Suppression axis as (m_min, num_tiers) pairs.
 
     The privacy-utility frontier is a narrow band where SOME tiers clear m_min
-    and some do not -- located near the per-tier participant mass. With ~542
-    participants this band sits around m_min 80-135 at K=5 and shifts with K.
-    We resolve that band finely (the earlier coarse grid stepped over it). The
-    transition is sharp ("cliff") because equal-ish tier sizes fall together --
-    itself a reported finding.
+    and some do not -- located near the per-tier participant mass. At the measured
+    FLHetBench availability (~0.26 -> ~384 participants/round), the per-tier mass
+    is ~77 at K=5 and ~48 at K=8, so the cliffs sit there (NOT at the higher values
+    an assumed availability would predict). We resolve each cliff finely. The
+    transition is sharp because equal-ish tier sizes fall together -- itself a
+    reported finding. These bands are consistent with the operating point m_min=77
+    used by the utility / exclusion experiments at K=5.
     """
     pairs = []
-    # K=5 band (per-tier mass ~108): resolve 1 -> full suppression.
-    for m in [1, 60, 90, 100, 105, 110, 115, 120, 130, 150]:
+    # K=5 band (per-tier mass ~77): cliff between 77 and 85.
+    for m in [1, 40, 55, 70, 77, 82, 88, 95, 110]:
         pairs.append((m, 5))
-    # K=8 band (per-tier mass ~68): cliff sits lower.
-    for m in [1, 40, 55, 62, 68, 74, 80, 95]:
+    # K=8 band (per-tier mass ~48): cliff between 48 and 55.
+    for m in [1, 25, 35, 45, 48, 52, 58, 65, 80]:
         pairs.append((m, 8))
     return pairs
 

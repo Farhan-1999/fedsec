@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+import quiet  # noqa: F401  (installs warning filters on import)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 
@@ -106,10 +107,10 @@ def main():
     # K interior quantiles at k/K for k=1..K-1 (calibrate appends a covering tier),
     # so the undefended run uses the same tier count as the rest of the paper.
     quantiles_undef = tuple(k / K for k in range(1, K))
-    cuts = eng_undef.calibrate_fixed_deadlines(quantiles_undef)
-    round_budget = cuts[-1]
+    ctrl_undef = eng_undef.adaptive_policy(quantiles_undef)
+    round_budget = ctrl_undef._cutoffs[-1]
     fine_bucketer = uniform_width_bucketer(num_buckets=20, round_budget=round_budget)
-    out_undef = eng_undef.run(lambda r,v: cuts, bucketer=fine_bucketer)
+    out_undef = eng_undef.run(ctrl_undef.policy(), bucketer=fine_bucketer)
 
     # --- Defended run: MANY tiers (so fast/sparse tiers fall below m_min and get
     #     suppressed), large m_min, single coarse bucket (min attacker signal) ---
@@ -117,12 +118,12 @@ def main():
     quantiles_def = tuple(np.linspace(1/K_DEF, (K_DEF-1)/K_DEF, K_DEF-1))
     eng_def = Engine(
         EngineConfig(seed=101, num_devices=NUM_DEVICES, num_rounds=NUM_ROUNDS,
-                     round_config=RoundConfig(m_min=120),
+                     round_config=RoundConfig(m_min=58),
                      flhetbench=C.population_config()),
         lcfg,
     )
-    cuts_d = eng_def.calibrate_fixed_deadlines(quantiles_def)
-    out_def = eng_def.run(lambda r,v: cuts_d, bucketer=single_bucket)
+    ctrl_def = eng_def.adaptive_policy(quantiles_def)
+    out_def = eng_def.run(ctrl_def.policy(), bucketer=single_bucket)
 
     advantage_fn = make_advantage_fn(seed_frac=0.10,
                                      num_rounds=NUM_ROUNDS, seed=0)

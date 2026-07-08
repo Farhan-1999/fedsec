@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+import quiet  # noqa: F401  (installs warning filters on import)
 sys.path.insert(0, str(Path(__file__).parent))
 
 from harness import _device_tier_records  # reuse the released-filtered observation builder
@@ -96,7 +97,7 @@ def run_one_defense(defense: DefenseConfig, lcfg: LatentConfig, *,
         class_means_log=means,
         latency_sigma_log=sigma,
         class_mixture=lcfg.mixture_array(),
-        deadlines=np.array(cuts),
+        deadlines=np.array(controller._cutoffs),
     )
     l2 = L2PriorAttacker(knowledge, num_tiers=K)
     l2.fit()
@@ -116,8 +117,8 @@ def main():
     # rungs should separate most), and strong.
     points = [
         ("undefended", DefenseConfig(m_min=1, num_tiers=5)),
-        ("mid",        DefenseConfig(m_min=110, num_tiers=5)),
-        ("strong",     DefenseConfig(m_min=115, num_tiers=5)),
+        ("mid",        DefenseConfig(m_min=77, num_tiers=5)),
+        ("strong",     DefenseConfig(m_min=88, num_tiers=5)),
     ]
     print("=" * 64)
     print(f"STEP 3 ADVERSARY LADDER  (eta={lcfg.proxy_noise_eta}, SNR={lcfg.signal_to_noise:.2f})")

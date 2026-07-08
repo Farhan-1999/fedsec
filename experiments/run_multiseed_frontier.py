@@ -37,14 +37,15 @@ NUM_ROUNDS = C.PRIVACY_ROUNDS
 
 def frontier_points() -> list[tuple[str, DefenseConfig]]:
     """Points spanning the frontier at K=5 for N=1500 (per-tier mass ~ 1500*avail/5)."""
-    # With ~270 participants/round over 5 tiers, per-tier mass ~ 54; cliff near there.
+    # At the measured FLHetBench availability (~0.26 -> ~384 participants/round over
+    # 5 tiers), per-tier mass ~77; the cliff sits between 77 and 85. Points bracket it.
     return [
         ("undefended", DefenseConfig(m_min=1, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
-        ("mild",       DefenseConfig(m_min=45, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
-        ("cliff_lo",   DefenseConfig(m_min=50, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
-        ("cliff_mid",  DefenseConfig(m_min=55, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
-        ("cliff_hi",   DefenseConfig(m_min=60, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
-        ("strong",     DefenseConfig(m_min=70, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
+        ("mild",       DefenseConfig(m_min=55, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
+        ("cliff_lo",   DefenseConfig(m_min=72, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
+        ("cliff_mid",  DefenseConfig(m_min=80, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
+        ("cliff_hi",   DefenseConfig(m_min=88, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
+        ("strong",     DefenseConfig(m_min=100, num_tiers=5, bucket_mode=BucketMode.SINGLE)),
     ]
 
 

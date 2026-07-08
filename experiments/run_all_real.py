@@ -22,6 +22,9 @@ Usage:
     python experiments/run_all_real.py --datasets cifar10   # one dataset
 """
 from __future__ import annotations
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(__file__))
+import quiet  # noqa: F401  (installs warning filters on import)
 
 import argparse
 import subprocess
@@ -89,20 +92,26 @@ def main():
                 ["--data", ds, "--rounds", str(args.rounds)])
             run(f"training figure [{ds}]", PLOTS / "training_curves.py", [f"training_{ds}"])
 
-            # controlled utility comparison (FedAvg / tiered / TiFL / adaptive / ours)
+            # controlled utility comparison (FedAvg / TiFL / ours) at the
+            # operating m_min set in run_utility_comparison (cliff point).
             results[f"utility_{ds}"] = run(
                 f"utility comparison [{ds}]", EXP / "run_utility_comparison.py",
                 ["--data", ds, "--rounds", str(args.rounds)])
             run(f"utility figure [{ds}]", PLOTS / "utility_comparison.py",
                 [f"utility_comparison_{ds}"])
 
-        # m_min sweep: trains repeatedly; run once on the primary (first) dataset
-        # to keep runtime bounded -- it is the trade-off SHAPE that matters.
-        primary = datasets[0]
-        results[f"mmin_{primary}"] = run(
-            f"m_min sweep [{primary}]", EXP / "run_mmin_sweep.py",
-            ["--rounds", str(args.rounds), "--data", primary])
-        run("m_min sweep figure", PLOTS / "mmin_sweep.py", [])
+            # our-framework-only time-to-accuracy curves across the m_min band
+            results[f"mmin_curves_{ds}"] = run(
+                f"m_min curves [{ds}]", EXP / "run_mmin_curves.py",
+                ["--data", ds, "--rounds", str(args.rounds)])
+            run(f"m_min curves figure [{ds}]", PLOTS / "mmin_curves.py",
+                [f"mmin_curves_{ds}"])
+
+        # client-exclusion accounting: ours (suppression) vs TiFL (untrained tiers).
+        # No training and dataset-agnostic, so run once at the shared operating point.
+        results["exclusion"] = run(
+            "exclusion accounting", EXP / "run_exclusion_accounting.py", [])
+        run("exclusion figure", PLOTS / "exclusion_accounting.py", [])
 
     # --- summary --------------------------------------------------------------
     print(f"\n{'='*70}\nSUMMARY\n{'='*70}")

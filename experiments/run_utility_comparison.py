@@ -14,8 +14,8 @@ is therefore attributable solely to the privacy mechanism, not to confounds.
 
 Configurations compared (all share seed, population, data, model init):
   - fedavg        : 1 tier, m_min=1            (vanilla synchronous FedAvg baseline)
-  - tiered_only   : K tiers, m_min=1           (tiering, but no privacy suppression)
-  - full_privacy  : K tiers, m_min=M           (tiering + suppression = our framework)
+  - tifl          : K tiers, single-tier/round (TiFL, the published speed-biased scheme)
+  - ours          : K tiers, m_min=M           (our framework: tiering + suppression)
 
 We report per-round accuracy/loss and both time axes (simulated deadline time and
 measured wall-clock), so the plot shows time-to-accuracy for all three on shared
@@ -38,7 +38,7 @@ from dtfl.learning import (
     federated_train,
     make_synthetic_classification,
 )
-from dtfl.controller.tifl import AdaptiveTiFLSelector, TiFLSelector
+from dtfl.controller.tifl import TiFLSelector
 from dtfl.rng import RngHub
 from dtfl.sim import Engine, EngineConfig, RoundConfig
 
@@ -106,7 +106,11 @@ def main():
     ap.add_argument("--lr", type=float, default=CFG.LR)
     ap.add_argument("--devices", type=int, default=CFG.DEVICES)
     ap.add_argument("--tiers", type=int, default=CFG.TIERS)
-    ap.add_argument("--m_min", type=int, default=8)
+    ap.add_argument("--m_min", type=int, default=77,
+                    help="anonymity floor for 'ours'; default 77 sits at the "
+                         "privacy cliff for N=1500, K=5 at the measured availability "
+                         "(~0.26 -> ~77 participants/tier), where the anonymity floor "
+                         "is raised materially while participation stays above 50%")
     ap.add_argument("--seed", type=int, default=CFG.SEED)
     ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     ap.add_argument("--stragglers", action="store_true", help="heavy slow-device tail")
@@ -123,13 +127,10 @@ def main():
     print(f"comparing on IDENTICAL seed={args.seed}, population, data, model init\n")
 
     tifl_selector = TiFLSelector(args.tiers, speed_bias=1.0, floor=0.10)
-    tifl_adaptive = AdaptiveTiFLSelector(args.tiers, interval=5, seed=args.seed)
     configs = [
         ("fedavg", 1, 1, None),
-        ("tiered_only", args.tiers, 1, None),
         ("tifl", args.tiers, 1, tifl_selector),
-        ("tifl_adaptive", args.tiers, 1, tifl_adaptive),
-        ("full_privacy", args.tiers, args.m_min, None),
+        ("ours", args.tiers, args.m_min, None),
     ]
 
     runs = []
