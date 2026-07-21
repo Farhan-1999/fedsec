@@ -1,0 +1,3 @@
+scheme,m_min,available,selected_out,suppressed,dropout,contributed,excluded_total,excluded_pct
+ours,77,30709,0,15537,1354,12581,16891,55.0
+tifl,1,30709,23721,0,560,5191,24281,79.07

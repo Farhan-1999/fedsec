@@ -91,12 +91,26 @@ def run_one_defense(defense: DefenseConfig, lcfg: LatentConfig, *,
     results["L1"] = capability_advantage(y_true, l1.predict(query_obs)).advantage
 
     # --- L2: known generative model, no labels ---
-    sigma = float(np.sqrt(lcfg.within_class_spread**2 + lcfg.proxy_noise_eta**2))
-    means = np.array([lcfg.class_mean_log(c) for c in range(1, lcfg.num_classes + 1)])
+    # The generative model under FLHetBench is NOT the parametric LatentConfig
+    # (its class means live on a synthetic ~0..1.6 log scale, whereas real device
+    # log-latencies are ~4.4..5.9). A Bayes-optimal adversary that "knows the
+    # generative model" here knows the real per-class latency statistics, which it
+    # can obtain by offline profiling of representative devices. We therefore
+    # derive the model knowledge empirically from the population's true class means,
+    # pooled within-class spread, and class mixture -- aggregate model knowledge,
+    # not per-device query labels (which L2 is still denied).
+    mu_all = engine._mu
+    cls_all = engine._classes
+    present = np.array(sorted(set(int(c) for c in cls_all)))
+    emp_means = np.array([mu_all[cls_all == c].mean() for c in present])
+    within_var = np.mean([mu_all[cls_all == c].var() for c in present])
+    emp_sigma = float(np.sqrt(within_var + lcfg.proxy_noise_eta**2))
+    counts = np.array([(cls_all == c).sum() for c in present], dtype=float)
+    emp_mixture = counts / counts.sum()
     knowledge = ModelKnowledge(
-        class_means_log=means,
-        latency_sigma_log=sigma,
-        class_mixture=lcfg.mixture_array(),
+        class_means_log=emp_means,
+        latency_sigma_log=emp_sigma,
+        class_mixture=emp_mixture,
         deadlines=np.array(controller._cutoffs),
     )
     l2 = L2PriorAttacker(knowledge, num_tiers=K)
