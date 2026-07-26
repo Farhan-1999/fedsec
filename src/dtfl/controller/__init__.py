@@ -7,6 +7,7 @@ OracleQuantileController) in experiment code only.
 """
 from dtfl.controller.base import Controller, DeadlinePolicy, project_monotone
 from dtfl.controller.ewma import EWMAQuantileController
+from dtfl.controller.fedsc import FeDSCClusterer, FeDSCController
 from dtfl.controller.fixed import FixedEqualWidth, FixedQuantile
 from dtfl.controller.quantile import QuantileTrackingController
 
@@ -14,4 +15,5 @@ __all__ = [
     "Controller", "DeadlinePolicy", "project_monotone",
     "FixedEqualWidth", "FixedQuantile",
     "QuantileTrackingController", "EWMAQuantileController",
+    "FeDSCClusterer", "FeDSCController",
 ]

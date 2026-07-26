@@ -38,6 +38,7 @@ from dtfl.learning import (
     federated_train,
     make_synthetic_classification,
 )
+from dtfl.controller.fedsc import FeDSCController
 from dtfl.controller.tifl import TiFLSelector
 from dtfl.rng import RngHub
 from dtfl.sim import Engine, EngineConfig, RoundConfig
@@ -67,7 +68,8 @@ def make_model(arch, d_in, C, hidden, use_torch, device='auto'):
 
 
 def run_config(name, num_tiers, m_min, *, train, val, d_in, C, arch, use_torch,
-               hidden, lr, rounds, devices, seed, tier_selector=None, device='auto'):
+               hidden, lr, rounds, devices, seed, tier_selector=None, device='auto',
+               profile_controller=None):
     """Run one configuration through the shared engine. Same seed => same
     population, availability, latency draws, and data shards across configs."""
     lcfg = (LatentConfig(class_separation=0.7, tail_prob=0.12, tail_scale_log=0.9)
@@ -83,6 +85,12 @@ def run_config(name, num_tiers, m_min, *, train, val, d_in, C, arch, use_torch,
     if num_tiers == 1:
         cutoffs = eng.calibrate_fixed_deadlines(())  # single covering cutoff
         controller = None
+    elif profile_controller is not None:
+        # Capability-aware baseline: deadlines come from its clustering of the
+        # per-device profiles, so the aggregate-only controller is not used.
+        qs = tuple((k + 1) / num_tiers for k in range(num_tiers - 1))
+        cutoffs = tuple(eng.adaptive_policy(qs)._cutoffs)  # round-0 init / time scale
+        controller = None
     else:
         qs = tuple((k + 1) / num_tiers for k in range(num_tiers - 1))
         controller = eng.adaptive_policy(qs)
@@ -93,7 +101,7 @@ def run_config(name, num_tiers, m_min, *, train, val, d_in, C, arch, use_torch,
         model, train, val, eng, cutoffs,
         FedTrainConfig(local_epochs=1, local_lr=lr, server_lr=1.0),
         RoundConfig(m_min=m_min), base_seed=7, tier_selector=tier_selector,
-        controller=controller,
+        controller=controller, profile_controller=profile_controller,
     )
     return res
 
@@ -127,21 +135,32 @@ def main():
     print(f"comparing on IDENTICAL seed={args.seed}, population, data, model init\n")
 
     tifl_selector = TiFLSelector(args.tiers, speed_bias=1.0, floor=0.10)
+    # FeDSC-sync: FeDSC's adaptive (BIRCH) clustering of collected per-device
+    # profiles, under our shared synchronous merge. See dtfl/controller/fedsc.py
+    # for exactly which parts of the paper are and are not reproduced.
+    fedsc_controller = FeDSCController(num_tiers=args.tiers, recluster_every=5)
     configs = [
-        ("fedavg", 1, 1, None),
-        ("tifl", args.tiers, 1, tifl_selector),
-        ("ours", args.tiers, args.m_min, None),
+        ("fedavg", 1, 1, None, None),
+        ("tifl", args.tiers, 1, tifl_selector, None),
+        ("fedsc", args.tiers, 1, None, fedsc_controller),
+        ("ours", args.tiers, args.m_min, None, None),
     ]
 
     runs = []
-    for name, K, m, sel in configs:
-        tag = "single-tier/round" if sel is not None else "all tiers merged"
+    for name, K, m, sel, pctl in configs:
+        if sel is not None:
+            tag = "single-tier/round"
+        elif pctl is not None:
+            tag = "adaptive clustering on collected profiles"
+        else:
+            tag = "all tiers merged"
         print(f"=== {name}  (tiers={K}, m_min={m}, {tag}) ===")
         res = run_config(
             name, K, m,
             train=train, val=val, d_in=d_in, C=C, arch=arch, use_torch=use_torch,
             hidden=args.hidden, lr=args.lr, rounds=args.rounds,
             devices=args.devices, seed=args.seed, tier_selector=sel, device=args.device,
+            profile_controller=pctl,
         )
         runs.append((name, res))
         acc = res.val_accuracy

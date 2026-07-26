@@ -29,7 +29,13 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dtfl.attack import L1FewShotAttacker, ObservationFeaturizer, build_observations
+from dtfl.attack import (
+    L1FewShotAttacker,
+    L3OmniscientAttacker,
+    ObservationFeaturizer,
+    build_observations,
+)
+from dtfl.attack.colluder import ColluderConfig, build_colluder_observations
 from dtfl.defense import DefenseConfig, bucketer_for, deadline_quantiles_for
 from dtfl.latent import LatentConfig
 from dtfl.metrics import capability_advantage
@@ -47,6 +53,7 @@ class DefensePointResult:
     num_tiers: int
     bucket_label: str
     # privacy
+    # ``advantage`` is the PRIMARY adversary (L1: server + colluding clients).
     advantage: float
     accuracy: float
     prior: float
@@ -56,6 +63,15 @@ class DefensePointResult:
     release_rate: float  # fraction of tier-rounds that released
     # bookkeeping
     n_query: int
+    # secondary rungs, evaluated on the same transcript:
+    #   L2 = observer that attributes a target's tier on released rounds
+    #        (the previous primary adversary, unchanged)
+    #   L3 = omniscient ceiling (labels of every other device)
+    advantage_l2: float = 0.0
+    advantage_l3: float = 0.0
+    honest_set: float = 0.0        # mean honest anonymity set (n_k - c_k)
+    honest_class: float = 0.0      # mean honest equivalence-class size |E_i|
+    collusion_rate: float = 0.0
 
     def row(self) -> dict:
         return {
@@ -69,6 +85,11 @@ class DefensePointResult:
             "mean_participation": self.mean_participation,
             "release_rate": self.release_rate,
             "n_query": self.n_query,
+            "advantage_l2": self.advantage_l2,
+            "advantage_l3": self.advantage_l3,
+            "honest_set": self.honest_set,
+            "honest_class": self.honest_class,
+            "collusion_rate": self.collusion_rate,
         }
 
 
@@ -108,6 +129,8 @@ def evaluate_defense_point(
     num_rounds: int = C.PRIVACY_ROUNDS,
     seed_frac: float = 0.10,
     attack_seed: int = 0,
+    collusion_rate: float = 0.10,
+    link_window: int = 8,
 ) -> DefensePointResult:
     """Run the simulation under ``defense`` and evaluate the L1 attack on it."""
     engine = Engine(
@@ -143,20 +166,68 @@ def evaluate_defense_point(
             release_rate=_release_rate(out), n_query=0,
         )
 
-    observations = build_observations(recs)
+    num_tiers = max(r.deadlines.num_tiers for r in out.transcript.view().all())
+    featurizer = ObservationFeaturizer(num_tiers, num_rounds, view=out.transcript.view())
+
+    def _run_rung(records, attacker_factory, omniscient=False):
+        """Fit/predict one rung on a given observation set; return advantage.
+
+        All rungs share this featurizer and the same seed/query split rule, so
+        they differ only in the observations they receive and the auxiliary
+        labels they are given.
+        """
+        obs = build_observations(records)
+        if not obs:
+            return 0.0, 0
+        oids = np.array([o.device_id for o in obs])
+        y = out.true_classes[oids]
+        r = np.random.default_rng(attack_seed)
+        pm = r.permutation(len(obs))
+        ns = max(2, int(seed_frac * len(obs)))
+        s_idx, q_idx = pm[:ns], pm[ns:]
+        if q_idx.size == 0:
+            return 0.0, 0
+        atk = attacker_factory()
+        if omniscient:
+            atk.fit(obs, y)          # omniscient: all-but-target labels
+        else:
+            atk.fit([obs[i] for i in s_idx], y[s_idx])
+        yp = atk.predict([obs[i] for i in q_idx])
+        return capability_advantage(y[q_idx], yp).advantage, int(q_idx.size)
+
+    # --- L1 (PRIMARY): server + colluding clients ------------------------
+    ccfg = ColluderConfig(
+        collusion_rate=collusion_rate, window=link_window, seed=attack_seed
+    )
+    coll_recs, _coll_ids, cstats = build_colluder_observations(out, ccfg)
+    adv_l1, n_q_l1 = _run_rung(
+        coll_recs,
+        lambda: L1FewShotAttacker(featurizer, min_observations=5, random_state=attack_seed),
+    )
+
+    # --- L2: released-round observer (the previous primary, unchanged) ---
+    adv_l2, _ = _run_rung(
+        recs,
+        lambda: L1FewShotAttacker(featurizer, min_observations=5, random_state=attack_seed),
+    )
+
+    # --- L3: omniscient ceiling ------------------------------------------
+    adv_l3, _ = _run_rung(
+        recs,
+        lambda: L3OmniscientAttacker(featurizer, random_state=attack_seed),
+        omniscient=True,
+    )
+
+    # Primary reported advantage is L1; accuracy/prior reported for L1's split.
+    observations = build_observations(coll_recs) or build_observations(recs)
     ids = np.array([o.device_id for o in observations])
     labels = out.true_classes[ids]
-    num_tiers = max(r.deadlines.num_tiers for r in out.transcript.view().all())
-
     rng = np.random.default_rng(attack_seed)
     perm = rng.permutation(len(observations))
     n_seed = max(2, int(seed_frac * len(observations)))
     seed_idx, query_idx = perm[:n_seed], perm[n_seed:]
-
-    featurizer = ObservationFeaturizer(num_tiers, num_rounds, view=out.transcript.view())
     atk = L1FewShotAttacker(featurizer, min_observations=5, random_state=attack_seed)
     atk.fit([observations[i] for i in seed_idx], labels[seed_idx])
-
     query_obs = [observations[i] for i in query_idx]
     y_pred = atk.predict(query_obs)
     y_true = labels[query_idx]
@@ -177,4 +248,9 @@ def evaluate_defense_point(
         mean_participation=float(np.mean(out.participation)),
         release_rate=_release_rate(out),
         n_query=len(query_idx),
+        advantage_l2=adv_l2,
+        advantage_l3=adv_l3,
+        honest_set=cstats["mean_honest_set"],
+        honest_class=cstats["mean_honest_class"],
+        collusion_rate=ccfg.collusion_rate,
     )

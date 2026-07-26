@@ -1,8 +1,16 @@
 """Utility comparison figure: does privacy machinery hurt training?
 
-Overlays three controlled configurations (fedavg, tifl, ours) on shared axes so
-the accuracy and time-to-accuracy gaps are read directly. All three came from the
-identical engine/seed/data/init, so any gap is purely the effect of the method.
+Overlays the controlled configurations (fedavg, tifl, fedsc, ours) on shared
+axes so the accuracy and time-to-accuracy gaps are read directly. All came from
+the identical engine/seed/data/init, so any gap is purely the effect of the
+method.
+
+FeDSC-sync is the capability-aware clustering baseline: it clusters devices from
+COLLECTED per-device profiles (adaptive BIRCH on training time) under our shared
+synchronous merge. Its global aggregation is therefore not the asynchronous one
+of the original paper -- see src/dtfl/controller/fedsc.py for exactly what is and
+is not reproduced. Curves are drawn only for configs present in the CSV, so this
+script works whether or not the fedsc run is included.
 
 Panels: accuracy vs round, loss vs round, and TRUE (straggler-aware) time-to-
 accuracy. The simulated deadline-unit time panel has been removed; total time is
@@ -23,11 +31,13 @@ import matplotlib.pyplot as plt
 RESULTS = Path("artifacts/results")
 FIGURES = Path("artifacts/figures")
 
-COLORS = {"fedavg": "#888780", "tifl": "#BA7517", "ours": "#378ADD"}
+COLORS = {"fedavg": "#888780", "tifl": "#BA7517", "fedsc": "#5B3A8C",
+          "ours": "#378ADD"}
 LABELS = {"fedavg": "FedAvg (1 tier)",
           "tifl": "TiFL (speed-biased)",
+          "fedsc": "FeDSC-sync (clusters collected profiles)",
           "ours": "Ours (tiered + m_min)"}
-ORDER = ["fedavg", "tifl", "ours"]
+ORDER = ["fedavg", "tifl", "fedsc", "ours"]
 
 
 def main():
@@ -66,8 +76,8 @@ def main():
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=9)
 
-    fig.suptitle("FedAvg vs TiFL vs Ours — identical engine, seed, data, model init",
-                 fontsize=12)
+    shown = " vs ".join(LABELS[c].split(" (")[0] for c in ORDER if c in runs)
+    fig.suptitle(f"{shown} — identical engine, seed, data, model init", fontsize=12)
     fig.tight_layout()
     FIGURES.mkdir(parents=True, exist_ok=True)
     out = FIGURES / f"{name}_curves.png"

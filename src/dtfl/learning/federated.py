@@ -88,6 +88,7 @@ def federated_train(
     base_seed: int = 7,
     tier_selector=None,
     controller=None,
+    profile_controller=None,
 ) -> FedTrainResult:
     """Run real federated training under the engine's timing/tier dynamics.
 
@@ -100,6 +101,12 @@ def federated_train(
     of tier indices to TRAIN this round. Default None trains all tiers (our
     framework / FedAvg). A TiFL-style baseline passes a selector that returns a
     single tier per round.
+
+    profile_controller: optional CAPABILITY-AWARE baseline controller that sets
+    deadlines from the per-device completion times of the round (e.g. FeDSC's
+    adaptive clustering). It models a server that has COLLECTED device profiles,
+    and exists only so such baselines can be compared; our framework never uses
+    it. When provided it overrides ``controller`` for that round's deadlines.
 
     controller: optional stateful deadline controller (e.g. the adaptive
     QuantileTrackingController). When provided, deadlines are updated ONLINE each
@@ -169,6 +176,17 @@ def federated_train(
 
         # completion times -> tier assignment (same logic as the metadata sim)
         tau = draw_completion_times(mu[avail_ids], lcfg, child.stream("latency"))
+
+        # CAPABILITY-AWARE BASELINE HOOK (not used by our framework).
+        # Some baselines (e.g. FeDSC) cluster devices from PER-DEVICE PROFILES
+        # the server has collected, rather than from aggregate counts. Such a
+        # baseline receives this round's per-device times here. This path is
+        # deliberately separate from ``controller`` above, which is restricted to
+        # the aggregate transcript: keeping them apart is what lets the paper say
+        # our controller never sees a per-device value while the baseline does.
+        if profile_controller is not None:
+            cutoffs_r = profile_controller.next_deadlines_from_times(r, tau)
+            deadlines = RoundDeadlines(round_index=r, cutoffs=tuple(cutoffs_r))
         tiers_local = assign_tiers(tau, deadlines)
         rosters_local = tier_rosters(tiers_local, num_tiers)
         # Feed this round's per-tier counts to the controller for its next update.

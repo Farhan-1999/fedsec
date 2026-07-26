@@ -1,18 +1,25 @@
-"""Step 3: the adversary ladder L0 <= L1 <= L2/L3.
+"""Step 3: the adversary ladder L0 <= L1 <= L3(omniscient).
 
-Runs all four rungs against the SAME transcripts at a few defense points, so the
-realistic L1 number is bracketed by an unsupervised floor (L0) and
-model-knowledge / near-omniscient ceilings (L2, L3). Reporting the ladder is what
-converts "an attack works" into "we characterized leakage across adversary
-strength" -- the framing PETS rewards.
+Runs three rungs against the SAME transcripts at a few defense points, so the
+realistic L1 number is bracketed by an unsupervised floor (L0) and an omniscient
+ceiling. Reporting the ladder is what converts "an attack works" into "we
+characterized leakage across adversary strength".
 
 All rungs share the identical observation channel (the same featurizer over the
 same released-tier-filtered observations); they differ ONLY in auxiliary
 knowledge:
   L0: none (cluster + tier-order labeling)
   L1: labeled seed (10%)
-  L2: true generative model, no labels (Bayes-optimal)
   L3: all-other-device labels (membership-inference ceiling)
+
+NOTE ON NAMING: an older Bayes-optimal rung (then called L2, "knows the
+generative model") has been REMOVED -- the server broadcasts the deadlines and
+observes the count distribution, so that rung's "secret" generative model is
+largely recoverable from aggregates and it was not cleanly distinct. It is no
+longer computed here. The emitted CSV keeps the legacy column name ``L3`` for the
+omniscient rung so existing plotting scripts keep working; the paper presents
+this rung as "L2 (omniscient)". See experiments/plots/plot_ladder.py, which maps
+CSV ``L3`` -> paper ``L2``.
 """
 from __future__ import annotations
 
@@ -33,9 +40,7 @@ from harness import _device_tier_records  # reuse the released-filtered observat
 from dtfl.attack import (
     L0UnsupervisedAttacker,
     L1FewShotAttacker,
-    L2PriorAttacker,
     L3OmniscientAttacker,
-    ModelKnowledge,
     ObservationFeaturizer,
     build_observations,
 )
@@ -70,7 +75,7 @@ def run_one_defense(defense: DefenseConfig, lcfg: LatentConfig, *,
     K = max(r.deadlines.num_tiers for r in out.transcript.view().all())
     featurizer = ObservationFeaturizer(K, num_rounds, view=out.transcript.view())
 
-    # Common train/query split (used by L1; L0 ignores labels; L2 none; L3 all-but-target).
+    # Common train/query split (used by L1; L0 ignores labels; L3 all-but-target).
     rng = np.random.default_rng(attack_seed)
     perm = rng.permutation(len(observations))
     n_seed = max(2, int(seed_frac * len(observations)))
@@ -90,34 +95,7 @@ def run_one_defense(defense: DefenseConfig, lcfg: LatentConfig, *,
     l1.fit([observations[i] for i in seed_idx], labels[seed_idx])
     results["L1"] = capability_advantage(y_true, l1.predict(query_obs)).advantage
 
-    # --- L2: known generative model, no labels ---
-    # The generative model under FLHetBench is NOT the parametric LatentConfig
-    # (its class means live on a synthetic ~0..1.6 log scale, whereas real device
-    # log-latencies are ~4.4..5.9). A Bayes-optimal adversary that "knows the
-    # generative model" here knows the real per-class latency statistics, which it
-    # can obtain by offline profiling of representative devices. We therefore
-    # derive the model knowledge empirically from the population's true class means,
-    # pooled within-class spread, and class mixture -- aggregate model knowledge,
-    # not per-device query labels (which L2 is still denied).
-    mu_all = engine._mu
-    cls_all = engine._classes
-    present = np.array(sorted(set(int(c) for c in cls_all)))
-    emp_means = np.array([mu_all[cls_all == c].mean() for c in present])
-    within_var = np.mean([mu_all[cls_all == c].var() for c in present])
-    emp_sigma = float(np.sqrt(within_var + lcfg.proxy_noise_eta**2))
-    counts = np.array([(cls_all == c).sum() for c in present], dtype=float)
-    emp_mixture = counts / counts.sum()
-    knowledge = ModelKnowledge(
-        class_means_log=emp_means,
-        latency_sigma_log=emp_sigma,
-        class_mixture=emp_mixture,
-        deadlines=np.array(controller._cutoffs),
-    )
-    l2 = L2PriorAttacker(knowledge, num_tiers=K)
-    l2.fit()
-    results["L2"] = capability_advantage(y_true, l2.predict(query_obs)).advantage
-
-    # --- L3: all-other-device labels (ceiling) ---
+    # --- L3: all-other-device labels (ceiling; presented as "L2 omniscient") ---
     l3 = L3OmniscientAttacker(featurizer, random_state=attack_seed)
     l3.fit(observations, labels)  # full omniscient pool
     results["L3"] = capability_advantage(y_true, l3.predict(query_obs)).advantage
@@ -137,7 +115,8 @@ def main():
     print("=" * 64)
     print(f"STEP 3 ADVERSARY LADDER  (eta={lcfg.proxy_noise_eta}, SNR={lcfg.signal_to_noise:.2f})")
     print("=" * 64)
-    print(f"{'defense':>12} {'L0':>7} {'L1':>7} {'L2':>7} {'L3':>7}")
+    print(f"{'defense':>12} {'L0':>7} {'L1':>7} {'L3':>7}")
+    print(f"{'':>12} {'':>7} {'':>7} {'(paper L2)':>7}")
     print("-" * 64)
     rows = []
     for name, defense in points:
@@ -145,7 +124,7 @@ def main():
         if res is None:
             print(f"{name:>12}   (all suppressed)")
             continue
-        print(f"{name:>12} {res['L0']:>7.3f} {res['L1']:>7.3f} {res['L2']:>7.3f} {res['L3']:>7.3f}")
+        print(f"{name:>12} {res['L0']:>7.3f} {res['L1']:>7.3f} {res['L3']:>7.3f}")
         rows.append({"defense": name, "m_min": defense.m_min, **res})
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)

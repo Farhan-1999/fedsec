@@ -1,7 +1,8 @@
 """Multi-seed hardening of the adversary ladder and the linkability curve.
 
 Reuses the generic run_multiseed driver to add 95% CIs to:
-  (1) the four-rung ladder (L0 <= L1 ~ L2 <= L3) at the mid-frontier defense
+  (1) the three-rung ladder (L0 <= L1 <= L3, presented as L2 in the paper) at
+      the mid-frontier defense
       point, where the rungs separate and variance matters most, and
   (2) the linkability horizon curve at selected horizons.
 
@@ -55,12 +56,12 @@ def harden_ladder(lcfg: LatentConfig):
                 seed=engine_seed, attack_seed=attack_seed,
                 num_devices=NUM_DEVICES, num_rounds=NUM_ROUNDS,
             )
-            # res is {"L0":..,"L1":..,"L2":..,"L3":..} or None if all suppressed.
-            return res if res is not None else {"L0": 0.0, "L1": 0.0, "L2": 0.0, "L3": 0.0}
+            # res is {"L0":..,"L1":..,"L3":..} or None if all suppressed.
+            return res if res is not None else {"L0": 0.0, "L1": 0.0, "L3": 0.0}
 
         agg = run_multiseed(eval_fn, num_seeds=NUM_SEEDS, base_seed=2024)
         row = {"point": name, "m_min": defense.m_min}
-        for rung in ("L0", "L1", "L2", "L3"):
+        for rung in ("L0", "L1", "L3"):
             a = agg.aggregates[rung]
             print("  " + a.summary())
             row[f"{rung}_mean"] = a.mean

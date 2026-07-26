@@ -7,6 +7,13 @@ NOT contributing to the global update under two schemes at matched N, K, seed:
          SUPPRESSED (n_k < m_min) or lost to secure-aggregation DROPOUT.
   tifl  (speed-biased single-tier/round): a client is excluded if its tier is
          NOT SELECTED this round, or lost to DROPOUT.
+  fedsc (adaptive clustering on collected profiles): every cluster aggregates,
+         so no cluster is discarded by selection and there is no anonymity
+         floor; a client is excluded only by DROPOUT. Its participation is
+         therefore an upper reference -- bought by disclosing the per-device
+         profiles it clusters on, which is exactly the cost our framework
+         avoids. Note FeDSC's clustering is not equal-mass, so its clients
+         concentrate in a few fast clusters (see dtfl/controller/fedsc.py).
 
 We separate the causes so the comparison is honest:
   - selected_out : excluded because the scheme did not train that client's tier
@@ -32,6 +39,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from dtfl.controller.fedsc import FeDSCController
 from dtfl.controller.tifl import TiFLSelector
 from dtfl.latent.latency import draw_completion_times
 from dtfl.protocol.dropout import apply_dropout
@@ -46,7 +54,8 @@ import config as CFG
 import run_utility_comparison as U
 
 
-def count_exclusions(eng, m_min, tiers, tier_selector, rounds, seed):
+def count_exclusions(eng, m_min, tiers, tier_selector, rounds, seed,
+                     profile_controller=None):
     """Replay the participation/tiering/dropout/release path (no training) and
     tally, each round, how many available clients are excluded and why."""
     lcfg = eng._lcfg
@@ -135,14 +144,17 @@ def main():
           f"m_min={args.m_min} rounds={args.rounds}\n")
 
     schemes = [
-        ("ours", None),
-        ("tifl", TiFLSelector(args.tiers, speed_bias=1.0, floor=0.10)),
+        ("ours", None, None),
+        ("tifl", TiFLSelector(args.tiers, speed_bias=1.0, floor=0.10), None),
+        ("fedsc", None, FeDSCController(num_tiers=args.tiers, recluster_every=5)),
     ]
     rows = []
-    for name, sel in schemes:
-        # ours uses m_min; tifl runs with no suppression (m_min=1) but drops tiers via selection
+    for name, sel, pctl in schemes:
+        # ours uses m_min; the baselines have no anonymity floor (m_min=1).
+        # tifl drops whole tiers by selection; fedsc keeps every cluster.
         mm = args.m_min if name == "ours" else 1
-        tot, per_round = count_exclusions(eng, mm, args.tiers, sel, args.rounds, args.seed)
+        tot, per_round = count_exclusions(eng, mm, args.tiers, sel, args.rounds, args.seed,
+                                          profile_controller=pctl)
         avail = tot["available"]
         excl = tot["selected_out"] + tot["suppressed"] + tot["dropout"]
         print(f"=== {name} (m_min={mm}) ===")

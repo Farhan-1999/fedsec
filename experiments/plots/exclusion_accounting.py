@@ -8,6 +8,13 @@ excluded-by-secure-aggregation-dropout. Percentages are of the available total.
 The story it tells: TiFL discards most clients by not training their tier each
 round (speed bias); our framework discards only the tiers that fail the m_min
 anonymity floor, retaining substantially more participation.
+
+FeDSC-sync is included as the capability-aware reference: it applies neither
+tier selection nor an anonymity floor, so every cluster aggregates and clients
+are lost only to SecAgg dropout. Its participation is therefore an upper
+reference -- one bought by disclosing the per-device profiles it clusters on,
+which is the disclosure our framework avoids. Read its bar as the cost of
+privacy, not as a scheme our framework fails to match.
 """
 from __future__ import annotations
 
@@ -30,8 +37,10 @@ SEGMENTS = [
     ("suppressed", "Excluded: m_min suppression", "#C6432E"),
     ("dropout", "Excluded: SecAgg dropout", "#7A7A7A"),
 ]
-LABELS = {"ours": "Ours\n(tiered + m_min)", "tifl": "TiFL\n(speed-biased)"}
-ORDER = ["ours", "tifl"]
+LABELS = {"ours": "Ours\n(tiered + m_min)",
+          "tifl": "TiFL\n(speed-biased)",
+          "fedsc": "FeDSC-sync\n(collects profiles)"}
+ORDER = ["ours", "tifl", "fedsc"]
 
 
 def main():
